@@ -1,0 +1,82 @@
+
+version: "3"
+
+services:
+
+  sistemacentrale:
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    # The keyword "build" will allow you to define
+    # the path to the Dockerfile to use to create the image
+    # that will allow you to execute the service.
+    # Here 'server/' corresponds to the path to the server folder
+    # that contains the Dockerfile to use.
+    build: sistema_centrale/
+    # The command to execute once the image is created.
+    # The following command will execute "python ./server.py".
+    command: python ./sistemacentrale.py
+    # volumes:
+    #   - sistema_centrale/:/usr/src/app
+    # Remember that we defined in'server/server.py' 1234 as port.
+    # If we want to access the server from our computer (outside the container),
+    # we must share the content port with our computer's port.
+    # To do this, the keyword 'ports' will help us.
+    # Its syntax is as follows: [port we want on our machine]:[port we want to retrieve in the container]
+    # In our case, we want to use port 1234 on our machine and
+    # retrieve port 1234 from the container (because it is on this port that
+    # we broadcast the server).
+    depends_on:
+      - db
+
+  sistemamobile:
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    # Here 'client/ corresponds to the path to the client folder
+    # that contains the Dockerfile to use.
+    build: sistema_mobile/
+    # The command to execute once the image is created.
+    # The following command will execute "python ./client.py".
+    command: python ./sistemamobile.py
+    # The keyword 'network_mode' is used to define the network type.
+    # Here we define that the container can access to the 'localhost' of the computer.
+    # ports:
+    #   - "224.1.1.1:5007:5007"
+    # The keyword'depends_on' allows you to define whether the service
+    # should wait until other services are ready before launching.
+    # Here, we want the 'client' service to wait until the 'server' service is ready.
+    depends_on:
+      - sistemacentrale
+      - stazionediriferimento
+
+  stazionediriferimento:
+      stdin_open: true # docker run -i
+      tty: true        # docker run -t
+      build: stazione_di_riferimento/
+      command: python ./stazioneriferimento.py
+      depends_on:
+        - sistemacentrale
+
+  antenna:
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    build: antenna/
+    command: python ./antenna.py
+    depends_on:
+      - stazionediriferimento
+      - sistemamobile
+
+  db:
+      image: postgres:14.1-alpine
+      #restart: always
+      environment:
+          - POSTGRES_DB=postgres
+          - POSTGRES_USER=postgres
+          - POSTGRES_PASSWORD=postgres
+      ports:
+          - 5432:5432
+      volumes: 
+          - db:/var/lib/postgresql/data
+
+volumes:
+  db:
+    driver: local

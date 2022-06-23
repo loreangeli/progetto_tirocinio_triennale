@@ -1,0 +1,2 @@
+1. far si che la richiesta di autenticazione possa essere fatta sempre dal sistema mobile
+2. far si che quando terminano con un segnale sia terminato tutto correttamente

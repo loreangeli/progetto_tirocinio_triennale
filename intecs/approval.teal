@@ -1,0 +1,133 @@
+#pragma version 5
+txn ApplicationID
+int 0
+==
+bnz main_l27
+txn OnCompletion
+int OptIn
+==
+bnz main_l23
+txn OnCompletion
+int CloseOut
+==
+bnz main_l22
+txn OnCompletion
+int UpdateApplication
+==
+bnz main_l21
+txn OnCompletion
+int DeleteApplication
+==
+bnz main_l20
+txn OnCompletion
+int NoOp
+==
+bnz main_l7
+err
+main_l7:
+gtxna 0 ApplicationArgs 0
+byte "set_address_sistema_centrale"
+==
+bnz main_l17
+gtxna 0 ApplicationArgs 0
+byte "insert_local_hash_snapshot_sm"
+==
+bnz main_l14
+gtxna 0 ApplicationArgs 0
+byte "compare_hash"
+==
+bnz main_l13
+gtxna 0 ApplicationArgs 0
+byte "validate_snapshot"
+==
+bnz main_l12
+err
+main_l12:
+byte "address_sistema_centrale"
+app_global_get
+txn Sender
+==
+assert
+int 1
+return
+main_l13:
+byte "address_sistema_centrale"
+app_global_get
+txn Sender
+==
+assert
+txna Accounts 1
+byte "hash_snapshot_sm"
+app_local_get
+txna ApplicationArgs 1
+==
+assert
+int 1
+return
+main_l14:
+global CreatorAddress
+txn Sender
+!=
+bnz main_l16
+main_l15:
+int 1
+return
+main_l16:
+txn Sender
+byte "hash_snapshot_sm"
+txna ApplicationArgs 1
+app_local_put
+b main_l15
+main_l17:
+global CreatorAddress
+txn Sender
+==
+bnz main_l19
+main_l18:
+int 1
+return
+main_l19:
+byte "address_sistema_centrale"
+txna ApplicationArgs 1
+app_global_put
+b main_l18
+main_l20:
+txn Sender
+global CreatorAddress
+==
+assert
+int 1
+return
+main_l21:
+txn Sender
+global CreatorAddress
+==
+assert
+int 1
+return
+main_l22:
+int 1
+return
+main_l23:
+global CreatorAddress
+txn Sender
+==
+bnz main_l26
+txn Sender
+byte "hash_snapshot_sm"
+byte ""
+app_local_put
+main_l25:
+int 1
+return
+main_l26:
+byte "address_sistema_centrale"
+txna Accounts 1
+app_global_put
+b main_l25
+main_l27:
+byte "address_sistema_centrale"
+byte ""
+app_global_put
+int 1
+return
