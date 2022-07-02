@@ -16,7 +16,7 @@ services:
     # The following command will execute "python ./server.py".
     command: python ./sistemacentrale.py
     # volumes:
-    #   - sistema_centrale/:/usr/src/app
+    #   - sistema_centrale:/usr/src/data
     # Remember that we defined in'server/server.py' 1234 as port.
     # If we want to access the server from our computer (outside the container),
     # we must share the content port with our computer's port.
@@ -63,6 +63,13 @@ services:
     command: python ./antenna.py
     depends_on:
       - stazionediriferimento
+      - sistemamobile
+
+  cli:
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    build: sistema_mobile/cli/
+    depends_on:
       - sistemamobile
 
   db:

@@ -22,3 +22,5 @@ ADD utility.py /sistema_centrale/
 # This command changes the base directory of your image.
 # Here we define '/server/' as base directory (where all commands will be executed).
 WORKDIR /sistema_centrale/
+
+# VOLUME ["sistema_centrale/"]

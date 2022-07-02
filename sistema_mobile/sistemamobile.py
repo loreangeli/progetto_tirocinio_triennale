@@ -1,3 +1,4 @@
+#moduli vari
 import socket
 from threading import Thread
 import zipfile
@@ -6,14 +7,38 @@ import struct
 import os
 import threading
 import json
-
+import pickle
 #moduli algorand
 from algosdk.future import transaction
 from algosdk import account
 from algosdk.v2client import algod
 from algosdk.constants import min_txn_fee
-
+#miei moduli
 import utility
+
+
+#configurazione Server UDP (comunicazione con antenna)
+MCAST_GRP = '224.1.1.1'
+MCAST_PORT = 5007
+
+#configurazione Client TCP (comunicazione con sistema centrale)
+host_sc = "sistemacentrale"
+port_sc = 12370
+bufferSize = 10240
+
+#Comunicazione sistema centrale-cli
+# configurazione Server TCP (comunicazione con cli)
+host_cli = "sistemamobile"
+port_cli = 12390
+bufferSize = 10240
+# configurazione Client TCP (comunicazione con sistema centrale per invio-ricezione id)
+host_sc_sm= "sistemacentrale"
+port_sc_sm = 12310
+bufferSize = 10240
+
+#lista dove salvo l'id degli snapshot ricevuto dal sistema centrale
+list_id = []
+
 
 '''
     Chiamata allo smart contract
@@ -38,7 +63,7 @@ def call_app(client, private_key, index, app_args, accounts) :
         client.send_transactions([signed_txn])
     except Exception as err:
         if (str(err).find("transaction already in ledger") != -1) :
-            print("transazione già in blockchain")
+            print("transazione gia' in blockchain")
         else :
             print(err)
             print("Suggerimento: potresti aver terminato il saldo nel conto")
@@ -79,7 +104,7 @@ def opt_in(client, private_key, app_id, app_args, accounts):
         #print("opt-in eseguito correttamente")
     except Exception as err:
         if str(err).find("has already opted in to app") != -1 :
-            print("opt-in già eseguito")
+            print("opt-in gia' eseguito")
         else :
             print("[optin exception] ",err)    
         return
@@ -95,21 +120,12 @@ def opt_in(client, private_key, app_id, app_args, accounts):
         return
 
     return
-   
-    
-#configurazione Server UDP (comunicazione con antenna)
-MCAST_GRP = '224.1.1.1'
-MCAST_PORT = 5007
-
-#configurazione Client TCP (comunicazione con sistema centrale)
-host_sc = "sistemacentrale"
-port_sc = 12370
-bufferSize = 10240
 
 # metodo che a partire dallo snapshot (stringa binaria) costruisce i due file:
 # 1. .zip contenente il file binario (snapshot)
 # 2. file JSON
 def create_files (binary_string) :
+    binary_string = binary_string.encode()
     #id thread
     id =threading.get_native_id()
     
@@ -155,21 +171,28 @@ def server_UDP():
     while(True):
         #In ascolto di snapshot da antenna
         print("? in ascolto di snapshot da antenna ?")
-        message = UDPServerSocket.recv(10240)
+        msg = UDPServerSocket.recv(10240) #riceve il time-reference
+        #ricostruisco i dati ricevuti dai satelliti
+        message = '{"timestamp": '+ utility.bintoascii(msg) + ', "latitudine": "'+ utility.generate_latitudine() +'", "longitudine": "'+ utility.generate_longitudine() + '", "altitudine": ' + utility.generate_altitudine() + '}'
+        print("dati di posizione:", message)
+        
         print("-------")
         print ("! snapshot ricevuto da antenna! ")
         
         #creo .zip e json
-        id = create_files(message)
+        message_bin = ''.join(format(i, '08b') for i in bytearray(message, encoding ='utf-8')) #trasformo la stringa in binario
+        id = create_files(message_bin)
         
         #invio notifica: pronto ad inviare pacchetto
         TCPclientsocket.send(b"pronto")
         TCPclientsocket.recv(bufferSize)
         
         #salvo hash(snapshot) su var.locale di sistema mobile
-        snapshot = message.decode('utf-8')
+        snapshot = message
+        print("stringa: ", message)
         hash_snapshot = hashlib.sha256(snapshot.encode())
         hash_snapshot_hex = hash_snapshot.hexdigest()
+        print("lo snapshot: ", hash_snapshot_hex)
         app_args = ["insert_local_hash_snapshot_sm".encode(), hash_snapshot_hex.encode()]
         call_app(algod_client, sistema_mobile_privatekey, app_id,  app_args, None)
 
@@ -200,6 +223,7 @@ def server_UDP():
         # ricevo id associato allo snapshot dal sistema centrale
         data = TCPclientsocket.recv(bufferSize)
         id_snapshot = data.decode()
+        list_id.append(id_snapshot)
         
         # richiedo autenticazione al sistema centrale tramite id (richiesta autenticazione)
         TCPclientsocket.send(id_snapshot.encode('utf-8'))
@@ -214,7 +238,53 @@ def server_UDP():
         # elimina vari file
         os.remove(snapshot_file)
         os.remove(metadati_file)
+  
+'''
+    Metodo per comunicare con cli
+    Rimane in attesa di una connessione TCP da parte della cli.py, riceve l'id da certificare e lo inoltra al sistema centrale,
+    riceve la risposta (True: certificazione corretta /False: certificazione non corretta) e la rimanda alla cli. 
+'''  
+def server_TCP() :
+    # crea connessione TCP con la cli (lato server)
+    TCPServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    TCPServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    TCPServerSocket.bind((host_cli, port_cli))
+
+    # setta il socket in modalità ascolto
+    TCPServerSocket.listen()
+
+    #stabilisci connessione TCP con la cli
+    c, addr = TCPServerSocket.accept() #addr è una tupla che contiene [ip, porta]
+    print("Connesso con TCP cli con host:"+str(addr[0])+", porta:"+str(addr[1]))
+
+    #crea connessione TCP con sistema centrale per l'invio dell'id da verificare e ricezione della risposta (True/False) (lato client)
+    TCPclientsocket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    TCPclientsocket.connect((host_sc_sm,port_sc_sm))
+    print("Connesso con TCP sistema centrale-cli con host:"+str(host_sc_sm)+", porta:"+str(port_sc_sm))
+
+    while True:
+        # ricevi msg da cli
+        data = c.recv(bufferSize)
+        #msg ricevuto: 'stampa_lista_id'
+        if (data.decode() == "stampa_lista_id"):
+            lista=pickle.dumps(list_id)
+            c.sendall(lista)
+        #msg ricevuto: 'exit'    
+        elif data.decode() == "exit":
+            c.close()
+            c, addr = TCPServerSocket.accept() #addr è una tupla che contiene [ip, porta] 
+        #msg ricevuto: id
+        else:
+            # invia id al sistema centrale
+            TCPclientsocket.send(data)
             
+            # ricevi risposta dal sistema centrale
+            data = TCPclientsocket.recv(bufferSize)
+            
+            #invia risposta alla cli
+            c.send(data)
+
+        
 
 if __name__ == "__main__":
     #estrai dati da info_algorand.json
@@ -244,7 +314,13 @@ if __name__ == "__main__":
     #opt-in di sistema mobile con lo smart contract
     opt_in(algod_client, sistema_mobile_privatekey, app_id, None, None)
     
-    #avvio server UDP
+    #avvio server UDP (comunicazione con antenna)
     thread_server_UDP = Thread(target=server_UDP)
     thread_server_UDP.start()
+    
+    #avvio server TCP (comunicazione con cli)
+    thread_server_TCP = Thread(target=server_TCP)
+    thread_server_TCP.start()
+    
+    
     

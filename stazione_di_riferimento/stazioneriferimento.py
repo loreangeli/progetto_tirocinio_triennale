@@ -22,6 +22,7 @@ bufferSize = 10240
     2. file .JSON
 '''
 def create_files (binary_string) :
+    binary_string = binary_string.encode()
     # id thread
     id = threading.get_native_id()
     
@@ -65,12 +66,18 @@ def server_UDP():
     while(True):
         #In ascolto di snapshot da antenna
         print("? in ascolto di snapshot da antenna ?")
-        message, address = UDPServerSocket.recvfrom(10240)
+        msg = UDPServerSocket.recv(10240)
+        #ricostruisco i dati ricevuti dai satelliti
+        message = '{"timestamp": '+ utility.bintoascii(msg) + ', "latitudine": "'+ utility.generate_latitudine() +'", "longitudine": "'+ utility.generate_longitudine() + '", "altitudine": ' + utility.generate_altitudine() + '}'
+        print("dati di posizione:", message)
+        
+        
         print("-------")
         print ("! snapshot ricevuto da antenna! ")
         
         #creo .zip e json
-        id = create_files(message)
+        message_bin = ''.join(format(i, '08b') for i in bytearray(message, encoding ='utf-8')) #trasformo la stringa in binario
+        id = create_files(message_bin)
         
         #invio notifica: pronto ad inviare pacchetto
         TCPclientsocket.send(b"pronto")

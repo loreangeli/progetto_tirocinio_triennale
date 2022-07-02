@@ -4,6 +4,7 @@ from algosdk import account
 from algosdk.constants import min_txn_fee
 from algosdk.future import transaction
 #moduli varie
+import os
 import socket
 from threading import Thread, Lock
 import hashlib
@@ -16,13 +17,19 @@ import json
 import database_library
 import utility
 
-#configurazione Server TCP con Sistema Mobile
+#configurazione Server TCP con Sistema Mobile (ricezione .zip e .JSON)
 host_sm = "sistemacentrale"
 port_sm = 12370
 bufferSize = 10240
-#configurazione Server TCP con Stazione di Riferimento
+#configurazione Server TCP con Stazione di Riferimento (ricezione .zip e .JSON)
 host_sr = 'sistemacentrale'
 port_sr = 12345
+
+# configurazione Server TCP (comunicazione con sistema mobile per invio-ricezione id)
+host_sc_sm= "sistemacentrale"
+port_sc_sm = 12310
+bufferSize = 10240
+
 
 #SEGNALE
 def signal_TERM(self, *args):
@@ -37,6 +44,21 @@ def signal_TERM(self, *args):
 class Counter:
     def __init__(self):
         self.value = 0
+        #controllo se ci sono già file .zip (esempio: packet_sm12.zip -> devo estrarre il numero 12) salvati e guardo a che numero sono arrivato
+        max = 0
+        files = os.listdir()
+        for stringa in files:
+            if stringa.find(".zip") != -1 :
+                stringa = stringa.replace(".zip", "")
+                if stringa.find("packet_sm") != -1 :
+                    stringa = stringa.replace("packet_sm", "")
+                elif stringa.find("packet_sr") != -1 :
+                    stringa = stringa.replace("packet_sr", "")
+                #estraggo numero
+                id = int(stringa)
+                if id > max :
+                    max = id
+            self.value = max + 1
         self.lock = Lock()
 
     def increase(self):
@@ -50,6 +72,51 @@ class Counter:
         self.lock.release()
         return self.value
     
+'''
+    Contatore con lock usato per il sistema mobile e la stazione di riferimento.
+    Dobbiamo far si che prima di controllare se gli snapshot ricevuti sono corretti siano arrivati tutti i file .zip e .json.
+    Spiegazione: imposto cont a 0 all'inizio, non appena il sistema mobile e la stazione di ricevimento iniziano a ricevere fanno entrambi cont ++,
+    quando finiscono fanno cont--.  thread del sistema mobile si mettono in attesa che cont sia a 0 prima di poter andare a fare le varie operazioni
+    di confronto degli snapshot.
+'''
+class Counter_lock:
+    def __init__(self):
+        self.value = 0
+        self.lock = Lock()
+
+    def increase(self):
+        self.lock.acquire()
+
+        current_value = self.value
+        current_value += 1
+
+        self.value = current_value
+
+        self.lock.release()
+        return self.value   
+    
+    def decrease(self):
+        self.lock.acquire()
+        
+        current_value = self.value
+        current_value -= 1
+        
+        self.value = current_value
+        
+        self.lock.release()
+        return self.value
+        
+    def get_counter(self):
+        return self.value 
+
+#lock per inserimento dei record nel file 'object_storage.json' e 'metadati.json'
+lock_json = Lock()
+
+#variabile globale usata per certificare che lo snapshot ricevuto dal sistema mobile è 
+#equivalente a quello delle stazioni di riferimento (nota che tecnicamente non sono uguali
+# ma vengono allineati!)
+certificazione = True #vale True se il confronto degli snapshot va a buon fine
+
 #database
 '''
     Lock per inserimento e rimozione nel database del record <id, check> evitando
@@ -114,7 +181,8 @@ def call_app(client, private_key, index, app_args, accounts, note) :
     cont_sm: id del sistema mobile (serve per identificare univocamente ogni sistema mobile collegato)
     counter: serve per associare ad ogni file .zip e .json un id
 '''
-def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :  
+def thread_sm (c, algod_client, cursor, conn, cont_sm,counter, counter_lock) :  
+    global certificazione #vale True se il confronto degli snapshot va a buon fine
     
     # ciclo infinito che rimane in attesa dei file .zip e e.json dal sistema mobile
     while True :   
@@ -127,6 +195,8 @@ def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :
         c.recv(bufferSize)
         c.send(b"pronto")
         
+        counter_lock.increase()
+                
         # ricevo packet_sm.zip
         dir_zip_sm = "packet_sm" + str(id_sm) + ".zip" 
         filetodown = open(dir_zip_sm,'wb')
@@ -150,6 +220,8 @@ def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :
         # invio conferma ricezione metadati.json
         c.send(b"done")
         
+        counter_lock.decrease()
+        
         # ricevo account_address_sistema_mobile
         msg = c.recv(bufferSize)
         account_address_sistema_mobile=msg.decode('utf-8')
@@ -158,7 +230,9 @@ def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :
         # estrai 'snapshot.bin' da packet_sm.zip e calcola l'hash
         archive = zipfile.ZipFile(dir_zip_sm, 'r')
         snapshot = archive.read('snapshot.bin')
-        hash_snapshot = hashlib.sha256(snapshot)
+        snapshot = utility.bintoascii(snapshot)
+        print("stringa:", snapshot)
+        hash_snapshot = hashlib.sha256(snapshot.encode())
         hash_snapshot_sm_hex = hash_snapshot.hexdigest()
         
         # calcolo id (cioè l'hash del file .zip ricevuto dal sistema mobile)
@@ -169,6 +243,78 @@ def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :
                 sha256_hash.update(byte_block)
             id_snapshot = sha256_hash.hexdigest()
         
+        lock_json.acquire()
+        #aggiungo record a 'object_storage.json'
+        with open('object_storage.json', 'r') as jsonfile:
+            dictionary_json = json.load(jsonfile)
+        record = {id_snapshot:dir_zip_sm}
+        dictionary_json.update(record) #appendi il record nel file json
+        with open('object_storage.json', 'w') as outfile: #aggiungo record ad 'object_storage.json'
+            json.dump(dictionary_json, outfile)
+        
+        #aggiungo record a 'metadati.json'
+        f_metadati = open('metadati.json',) 
+        dictionary_json2 = json.load(f_metadati)
+        record = {id_snapshot:dir_json_sm}
+        dictionary_json2.update(record) #appendi il record nel file json
+        with open('metadati.json', 'w') as outfile2: #aggiungo record ad 'object_storage.json'
+            json.dump(dictionary_json2, outfile2)        
+        lock_json.release()
+        
+        #attendo che tutti i file .json e .zip dei sistemi mobili e dalle stazioni di riferimento siano arrivati
+        while counter_lock.get_counter() != 0 :
+            pass
+        
+        #CONFRONTO DEGLI SNAPSHOT
+        # confronto degli snapshot (sistema mobile e stazione di riferimento), lo faccio fare
+        #al primo thread del sistema mobile
+        #Suggerimento: per chiarire le cose guarda la figura 'Ricerca snapshot da id'
+        if counter == 1 :
+            #estraggo il record tramite id_snapshot dal file 'object_storage.json' e prendo il secondo campo del record (nome del file zip)
+            nome_zip = dictionary_json[id_snapshot]
+            print("nome_zip: ", nome_zip)
+            #estraggo lo snapshot dal file 
+            archive = zipfile.ZipFile(nome_zip, 'r')
+            snapshot = archive.read('snapshot.bin')
+            print("snapshot: ", snapshot.decode("utf-8"))
+            #estraggo il record tramite id_snapshot dal file 'metadati.json' e prendo il secondo campo del record (nome del file json)
+            nome_json = dictionary_json2[id_snapshot]
+            print("nome_json: ", nome_json)
+            #estraggo il campo timestamp dal file nome_json
+            with open(nome_json) as jsonfile: 
+                data = json.load(jsonfile) #ritorna l'oggetto JSON come dizionario
+            timestamp = data['timestamp']
+            '''scorro i json dei metadati e controllo che abbiano il solito timestamp,
+            ricerco quindi il file .zip associato a quel file dei metadati. Come?
+            andando nel file 'metadati.json' e prendendo il campo id associato a quel 
+            file dei metadati. Il campo id lo uso per trovare il file .zip nel file
+            'object_storage.json' e confronto quello snapshot con quello della variabile
+            chiamata snapshot. '''
+            #scorro i json dei metadati
+            files = os.listdir()
+            for file in files:
+                if file.find("metadati_") != -1:
+                    #estraggo il timestamp dal file
+                    with open(nome_json) as jsonfile: 
+                        data2 = json.load(jsonfile) #ritorna l'oggetto JSON come dizionario
+                    timestamp_tmp = data2['timestamp']
+                    #controllo che abbia il solito timestamp di quello che mi interessa
+                    if (timestamp == timestamp_tmp) :
+                        ## Ricerco il file .zip associato a quel file dei metadati
+                        #vado nel file metadati e prendo il campo id associato a quel file dei metadati
+                        for id in dictionary_json2:
+                            if dictionary_json2[id] == file: #se vale True: id è l'id che volevamo
+                                #vado nel file 'object_storage.json' e tramite id prendo il campo contentente il .zip
+                                file_zip_trovato = dictionary_json[id]
+                                #estraggo lo snapshot
+                                archive = zipfile.ZipFile(file_zip_trovato, 'r')
+                                snapshot_tmp = archive.read('snapshot.bin')        
+                                #confronto lo snapshot appena trovato con quello della variabile chiamata snapshot
+                                if (snapshot == snapshot_tmp) :
+                                    pass
+                                else :
+                                    certificazione = False
+                                      
         #qua dovrei cercare lo 'snapshot.bin' della stazione di riferimento
         #corrispondente a quello ricevuto dal sistema mobile e calcolare il suo hash
         #attendi che packet_sr.zip sia stato scaricato prima di calcolarci l'hash 
@@ -185,7 +331,7 @@ def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :
         app_args = ["compare_hash".encode(), hash_snapshot_sm_hex.encode()]
         accounts = [account_address_sistema_mobile]
         try :
-            #risultato_autenticazione viene settato a True se non ci sono stati errori nella chiamata 'compare_hash'
+            #il risultato_autenticazione viene settato a True se non ci sono stati errori nella chiamata 'compare_hash'
             risultato_autenticazione = not errore_compare_hash
             #chiamo il metodo 'compare_hash' dello smart contract
             call_app(algod_client, sistema_centrale_privatekey, app_id, app_args, accounts, None)
@@ -196,15 +342,16 @@ def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :
             database_library.add_snapshot(cursor, conn, id_snapshot, risultato_autenticazione, lock_database)
             print("lo snapshot potrebbe essere stato alterato oppure c'è stato un errore differente")
             print(err)
-        if (errore_compare_hash == False) :
+        if (errore_compare_hash == False and certificazione == True) : #è andato tutto bene -> valido posizione
             #chiamo metodo smart contract 'validate_snapshot'
             app_args=["validate_snapshot".encode()]
-            note = "id: " + id_snapshot + ", hash_snapshot_sm: " + hash_snapshot_sm_hex + ", hash_snapshot_sr: " + hash_snapshot_sr_hex
+            #note = "id: " + id_snapshot + ", hash_snapshot_sm: " + hash_snapshot_sm_hex + ", hash_snapshot_sr: " + hash_snapshot_sr_hex
+            note = "id: " + id_snapshot + ", hash_snapshot_sm: " + hash_snapshot_sm_hex
             call_app(algod_client, sistema_centrale_privatekey, app_id, app_args, None, note.encode())
             #inserisci record <id, risultato> nel database
             database_library.add_snapshot(cursor, conn, id_snapshot, risultato_autenticazione, lock_database)
            
-        #invio id (hash del contenuto di snapshot.bin ricevuto dal sistema mobile) al sistema mobile
+        #invio id dello snapshot (cioè l'hash del file .zip ricevuto dal sistema mobile) al sistema mobile
         #print("id_snapshot (snapshot.bin): ",id_snapshot)
         c.send(id_snapshot.encode('utf-8'))
             
@@ -212,39 +359,29 @@ def thread_sm (c, algod_client, cursor, conn, cont_sm,counter) :
         msg = c.recv(bufferSize)
         id_receive = msg.decode('utf-8')
         #elimina il record <id, risultato> dal database dopo che il sistema mobile ha richiesto l'autenticazione dello snapshot
-        database_library.delete_snapshot(cursor, conn, id_receive, lock_database)
+        # database_library.delete_snapshot(cursor, conn, id_receive, lock_database)
         
         #invia risposta autenticazione al sistema mobile
         c.send(str(risultato_autenticazione).encode('utf-8'))
-              
+     
 '''
-    Server TCP che comunica con il sistema mobile.
-    Gli argomenti passati sono i seguenti:
-    cursor: usato per Postgres
-    conn: usato per Postgres
-    counter: serve per associare ad ogni .zip e .json un id
+    Crea una comunicazione con il sistema mobile per la certificazione gli snapshot. Questo thread rimane in ascolto di 
+    id da verificare al sistema mobile e inoltra la risposta. Il sistema mobile invierà poi il risultato al cli.
 '''
-def server_sm (cursor, conn, counter) :
-    cont_sm = 0 #associa un id a ogni sistema mobile che si collega
-    
-    # crea connessione TCP con il sistema mobile
-    TCPServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    TCPServerSocket.bind((host_sm, port_sm))
-    TCPServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    # setta il socket in modalità ascolto
-    TCPServerSocket.listen()
-
-    # rimane in ascolto di nuove connessioni con il sistema mobile e se ne arriva una avvia un thread per gestirla
-    while (True) :
-        cont_sm = cont_sm + 1
-        # stabilisci connessione TCP con il sistema mobile
-        c, addr = TCPServerSocket.accept() #addr è una tupla che contiene [ip, porta]
-        thread_server_sm = Thread(target=thread_sm, args=(c, algod_client, cursor, conn, cont_sm,counter))
-        print("Connessione TCP con sistema mobile, host:"+str(addr[0])+", porta:"+str(addr[1]))
-        thread_server_sm.start()
-         
-    c.close()
+def thread_sm_cli(c, cursor, conn) :
+     while True:
+         # ricevi id dal sistema mobile
+         data = c.recv(bufferSize)
+         id = str(data.decode())
+         #controlla nel database il risultato del record <id, risultato>
+         record = database_library.search_snapshot(cursor, conn, id, lock_database)
+         if record == "None": #id non trovato tra i record nel database
+             # invia risposta (se l'id è stato certificato correttamente oppure no)
+             c.send("None".encode())
+         else : #id trovato nel database
+             risultato = str(record[1])
+             # invia risposta (se l'id è stato certificato correttamente oppure no)
+             c.sendall(risultato.encode())
 
 '''
     Thread che serve per la comunicazione con la stazione di riferimento
@@ -253,7 +390,7 @@ def server_sm (cursor, conn, counter) :
     cont_sr: id della stazione di riferimento (serve per identificare univocamente ogni stazione di riferimento collegata)
     counter: serve per associare ad ogni file .zip e .json un id
 '''
-def thread_sr(c, cont_sr,counter) :
+def thread_sr(c, cont_sr,counter, counter_lock) :
     
     # ciclo infinito che rimane in attesa dei file .zip e e.json dal sistema mobile
     while True:
@@ -264,6 +401,8 @@ def thread_sr(c, cont_sr,counter) :
         c.recv(bufferSize)
         c.send(b"pronto")
        
+        counter_lock.increase()
+               
         # ricevo packet_sr.zip
         dir_zip_sr = "packet_sr" + str(id_sr) + ".zip" 
         filetodown = open(dir_zip_sr,'wb')
@@ -283,13 +422,99 @@ def thread_sr(c, cont_sr,counter) :
         filetodown_2.write(data)
         filetodown_2.close()
         print("metadati_sr" + str(id_sr) + ".json" + " RICEVUTO dalla stazione di riferimento " + str(cont_sr)) 
+        
+        
+        # calcolo id (cioè l'hash del file .zip ricevuto dal sistema mobile)
+        sha256_hash = hashlib.sha256()
+        with open(dir_zip_sr,"rb") as f:
+            #leggi e aggiorna il valore della stringa hash in blocchi di 4K
+            for byte_block in iter(lambda: f.read(4096),b""):
+                sha256_hash.update(byte_block)
+            id_snapshot = sha256_hash.hexdigest()
+        
+        lock_json.acquire()      
+        #aggiungo record a 'object_storage.json'
+        f_object_storage = open('object_storage.json',) 
+        dictionary_json = json.load(f_object_storage)
+        print("contenuto 'object_storage.json': ",dictionary_json)
+        record = {id_snapshot:dir_zip_sr}
+        dictionary_json.update(record) #appendi il record nel file json
+        with open('object_storage.json', 'w') as outfile: #aggiungo record ad 'object_storage.json'
+            json.dump(dictionary_json, outfile)
+        
+        #aggiungo record a 'metadati.json'
+        f_metadati = open('metadati.json',) 
+        dictionary_json2 = json.load(f_metadati)
+        print("contenuto 'metadati.json': ",dictionary_json2)
+        record2 = {id_snapshot:dir_json_sr}
+        dictionary_json2.update(record2) #appendi il record nel file json
+        with open('metadati.json', 'w') as outfile2: #aggiungo record ad 'object_storage.json'
+            json.dump(dictionary_json2, outfile2) 
+        lock_json.release()       
+           
+        counter_lock.decrease()
+
+
+'''
+    Server che rimane in ascolto di nuove connessioni TCP con i sistemi mobili, non appena
+    viene aperta una nuova connessione da un sistema mobile viene creato un thread che la gestisce.
+    Questo thread ha il compito di comunicare con il sistema mobile per la ricezione degli id e 
+    l'invio della conferma certificazione posizione.
+'''
+def server_sm_cli() :
+    # crea connessione TCP con il sistema mobile (per ricezione id)
+    TCPServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    TCPServerSocket.bind((host_sc_sm, port_sc_sm))
+    TCPServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # setta il socket in modalità ascolto
+    TCPServerSocket.listen()
+    
+    # rimane in ascolto di nuove connessioni con il sistema mobile e se ne arriva una avvia un thread per gestirla
+    while (True) :
+        # stabilisci connessione TCP con il sistema mobile
+        c, addr = TCPServerSocket.accept() #addr è una tupla che contiene [ip, porta]
+        thread_server_sm_cli = Thread(target=thread_sm_cli, args=(c, cursor, conn))
+        print("Connessione TCP con sistema mobile (cli), host:"+str(addr[0])+", porta:"+str(addr[1]))
+        thread_server_sm_cli.start()
+         
+    c.close()
+            
+'''
+    Server TCP che comunica con il sistema mobile.
+    Gli argomenti passati sono i seguenti:
+    cursor: usato per Postgres
+    conn: usato per Postgres
+    counter: serve per associare ad ogni .zip e .json un id
+'''
+def server_sm (cursor, conn, counter, counter_lock) :
+    cont_sm = 0 #associa un id a ogni sistema mobile che si collega
+    
+    # crea connessione TCP con il sistema mobile
+    TCPServerSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    TCPServerSocket.bind((host_sm, port_sm))
+    TCPServerSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    # setta il socket in modalità ascolto
+    TCPServerSocket.listen()
+    
+    # rimane in ascolto di nuove connessioni con il sistema mobile e se ne arriva una avvia un thread per gestirla
+    while (True) :
+        cont_sm = cont_sm + 1
+        # stabilisci connessione TCP con il sistema mobile
+        c, addr = TCPServerSocket.accept() #addr è una tupla che contiene [ip, porta]
+        thread_server_sm = Thread(target=thread_sm, args=(c, algod_client, cursor, conn, cont_sm,counter, counter_lock))
+        print("Connessione TCP con sistema mobile, host:"+str(addr[0])+", porta:"+str(addr[1]))
+        thread_server_sm.start()
+         
+    c.close()
 
 '''
     Server TCP che comunica con la stazione di riferimento
     Gli argomenti passati sono i seguenti:
     counter: serve per associare ad ogni .zip e .json un id
 '''
-def server_sr (counter) :
+def server_sr (counter, counter_lock) :
     cont_sr = 0 #associa un id a ogni sistema mobile che si collega
     
     # crea connessione TCP con la stazione di riferimento
@@ -306,7 +531,7 @@ def server_sr (counter) :
         #stabilisci connessione TCP con la stazione di riferimento
         c, addr = TCPServerSocket.accept() #addr è una tupla che contiene [ip, porta]
         print("Connesso con TCP stazione di riferimento con host:"+str(addr[0])+", porta:"+str(addr[1]))
-        thread_server_sr = Thread(target = thread_sr, args=(c, cont_sr,counter))
+        thread_server_sr = Thread(target = thread_sr, args=(c, cont_sr,counter, counter_lock))
         thread_server_sr.start()
 
     c.close()
@@ -340,6 +565,26 @@ if __name__ == "__main__":
     #SEGNALE
     signal.signal(signal.SIGTERM, signal_TERM)
     
+    #inizializzo i contatori
+    counter = Counter() #sistema mobile
+    counter2 = Counter() #stazione di riferimento
+    counter_lock = Counter_lock() #stazione di riferimento
+    
+    # crea se non esiste o apri il file 'object_storage.json'
+    try:
+        f = open('object_storage.json',) 
+    except FileNotFoundError as err:
+        with open('object_storage.json', 'w') as outfile:
+            data = {}
+            json.dump(data, outfile)
+    # crea se non esiste o apri il file 'metadati.json'
+    try:
+        f2 = open('metadati.json',) 
+    except FileNotFoundError as err:
+        with open('metadati.json', 'w') as outfile:
+            data = {}
+            json.dump(data, outfile)
+        
     #configurazione database PostgreSQL
     conn = psycopg2.connect(user="postgres", password="postgres", database="postgres", host="db", port="5432")
     if (database_library.DEBUG == True): print("Database PostgreSQL connesso.")
@@ -349,14 +594,13 @@ if __name__ == "__main__":
     database_library.create_table_snapshot_list (cursor, conn)
     # delete_table(cursor, conn, 'SNAPSHOT_LIST')
     # delete_database(cursor, 'SNAPSHOT_LIST')
-
-    #inizializzo i contatori
-    counter = Counter() #sistema mobile
-    counter2 = Counter() #stazione di riferimento
     
     #server per comunicare con sistema mobile
-    thread_server_sm = Thread(target=server_sm, args=(cursor,conn, counter))
+    thread_server_sm = Thread(target=server_sm, args=(cursor,conn, counter, counter_lock,))
     thread_server_sm.start()
     #server per comunicare con la stazione di riferimento
-    thread_server_sr = Thread(target=server_sr,args=(counter2,))
+    thread_server_sr = Thread(target=server_sr,args=(counter2,counter_lock,))
     thread_server_sr.start()
+    #avvio server che attende l'id da parte di sistema mobile
+    thread_server_sm_cli = Thread(target=server_sm_cli, args=())
+    thread_server_sm_cli.start()

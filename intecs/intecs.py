@@ -312,6 +312,11 @@ def help() :
 
 #controllo esistenza app, se non esiste chiede di crearla e fa anche
 #l'operazione di opt-in
+'''
+    Controlla l'esistenza dell'applicazione controllando il valore di 'app_id' nel file 'config.json'.
+    Se il valore è 0 si richiede di creare l'applicazione. Dopo aver creato l'app viene anche fatta
+    l'operazione di opt-in.
+'''
 def check_and_create_app(primo_avvio, app_id):
     #controlla esistenza applicazione
     config_json = json.load(open("config.json"))
@@ -382,7 +387,6 @@ if __name__ == "__main__":
     
     print("Terminale Intecs")
     time.sleep(0.05)
-    #app_id=94752451
     
     #controllo correttezza config.json
     config_json = json.load(open("config.json"))
@@ -433,7 +437,7 @@ if __name__ == "__main__":
                 msg = input()
                 if (msg == "SI"):
                     app_id = create_app(algod_client, intecs_privatekey, approval_program_compiled, clear_state_program_compiled, global_schema, local_schema)
-                    print("Attenzione: ricorda di cambiare manualmente l'app-id di sistema mobile e di sistema centrale")
+                    print("Attenzione: ricorda di cambiare manualmente l'app-id del file info_algorand.json di sistema mobile e di sistema centrale")
                     #salva app_id in config.json
                     config_json = {"app_id" : app_id} 
                     with open("config.json", "w") as outfile:

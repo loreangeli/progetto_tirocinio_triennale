@@ -20,7 +20,7 @@ def generate_snapshot () :
     gmt = time.gmtime()
     timestamp = calendar.timegm(gmt)
     
-    snapshot = '{"timestamp": '+ str(timestamp) + ', "altitudine": '+str(num_random())+', "longitudine": '+str(num_random())+ '}'
+    snapshot = str(timestamp)
     return snapshot
 
 def asciitobin (string) :

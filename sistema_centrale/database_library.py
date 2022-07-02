@@ -1,5 +1,4 @@
 import psycopg2
-from threading import Thread, Lock
 
 DEBUG = True
 
@@ -12,7 +11,7 @@ def create_database (cursor, database_name) :
         cursor.execute(sql)
         print("Database creato con successo...")
     except psycopg2.DatabaseError as e:
-        if (DEBUG == True): print("Database già esistente! Impossibile crearlo.")
+        if (DEBUG == True): print("Database gia esistente! Impossibile crearlo.")
         pass
 
 def delete_database (cursor, database_name) :
@@ -32,7 +31,7 @@ def create_table_snapshot_list (cursor, conn) :
         cursor.execute(sql)
         print("Tabella creata con successo..")
     except psycopg2.DatabaseError as e:
-        if (DEBUG==True): print ("Tabella già esistente! Impossibile crearla.")
+        if (DEBUG==True): print ("Tabella gia esistente! Impossibile crearla.")
         pass
 
     conn.commit()
@@ -70,6 +69,26 @@ def delete_snapshot(cursor, conn, id, lock_database) :
         
     conn.commit()
     lock_database.release()
+    
+    
+def search_snapshot(cursor, conn, id, lock_database) :
+    lock_database.acquire()
+    sql = '''SELECT * FROM SNAPSHOT_LIST WHERE ID=''' + "'" + str(id) + "'"
+    try:
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+        i = 0 #conta i record 
+        for row in rows:
+            i = i + 1
+        if i == 0: #nessun record trovato
+            lock_database.release()   
+            return "None"
+    except Exception as e:
+        print(e)
+        print("record con id " + str(id) + "non presente")
+        lock_database.release()
+    lock_database.release()
+    return rows[0]
     
 def print_table(conn) :
     try :
