@@ -1,5 +1,1 @@
-1. far si che la richiesta di autenticazione possa essere fatta sempre dal sistema mobile
-2. far si che quando terminano con un segnale sia terminato tutto correttamente
-3. dopo aver ricevuto la richiesta certificazione elimina i file salvati .json e .zip
-4. ma la verifica degli snapshot da  parte del sistema mobile la faccio a mano oppure è in automatico ?? 
-5. file <none> ?? 
+per far si che funzioni la sandbox prova a far partire la sandbox e dopo far partire il progetto mio

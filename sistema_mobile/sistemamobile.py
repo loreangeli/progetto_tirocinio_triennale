@@ -8,6 +8,7 @@ import os
 import threading
 import json
 import pickle
+import signal
 #moduli algorand
 from algosdk.future import transaction
 from algosdk import account
@@ -15,8 +16,19 @@ from algosdk.v2client import algod
 from algosdk.constants import min_txn_fee
 #miei moduli
 import utility
+import time
+import sys
 
-
+#SEGNALE
+#variabile globale che viene impostata a False quando viene ricevuto un segnale SIGTERM
+esegui = True
+def signal_TERM(self, *args):
+    try :
+        time.sleep(6)
+        sys.exit(0)
+    except Exception as err:
+        print("gestita eccezione: " + str(err))
+    
 #configurazione Server UDP (comunicazione con antenna)
 MCAST_GRP = '224.1.1.1'
 MCAST_PORT = 5007
@@ -35,9 +47,6 @@ bufferSize = 10240
 host_sc_sm= "sistemacentrale"
 port_sc_sm = 12310
 bufferSize = 10240
-
-#lista dove salvo l'id degli snapshot ricevuto dal sistema centrale
-list_id = []
 
 
 '''
@@ -104,7 +113,8 @@ def opt_in(client, private_key, app_id, app_args, accounts):
         #print("opt-in eseguito correttamente")
     except Exception as err:
         if str(err).find("has already opted in to app") != -1 :
-            print("opt-in gia' eseguito")
+            pass
+            # print("opt-in gia' eseguito")
         else :
             print("[optin exception] ",err)    
         return
@@ -161,23 +171,33 @@ def server_UDP():
     UDPServerSocket.bind(('', MCAST_PORT))
     mreq = struct.pack("4sl", socket.inet_aton(MCAST_GRP), socket.INADDR_ANY)
     UDPServerSocket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-    print("server UDP connesso ad antenna")
+    print("*Server UDP connesso ad antenna")
     
     #Connessione client TCP con il sistema centrale per l'invio dello snapshot
     TCPclientsocket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     TCPclientsocket.connect((host_sc,port_sc))
     print("Connesso con TCP sistema centrale con host:"+str(host_sc)+", porta:"+str(port_sc))
     
-    while(True):
+    while True:
+        
         #In ascolto di snapshot da antenna
-        print("? in ascolto di snapshot da antenna ?")
+        print("! in ascolto di snapshot da antenna !")
         msg = UDPServerSocket.recv(10240) #riceve il time-reference
+        print("ricevuto snapshot: ",utility.bintoascii(msg))
+        
+        #gestisco SIGTERM
+        if (utility.bintoascii(msg) == "termina"):
+            print("messaggio terminazione ricevuto")
+            TCPclientsocket.send(b"termina")
+            #chiudo connessione TCP con il sistema centrale
+            TCPclientsocket.close()
+            #chiudo connessione UDP con antenna
+            UDPServerSocket.close()
+            return
+        
         #ricostruisco i dati ricevuti dai satelliti
         message = '{"timestamp": '+ utility.bintoascii(msg) + ', "latitudine": "'+ utility.generate_latitudine() +'", "longitudine": "'+ utility.generate_longitudine() + '", "altitudine": ' + utility.generate_altitudine() + '}'
         print("dati di posizione:", message)
-        
-        print("-------")
-        print ("! snapshot ricevuto da antenna! ")
         
         #creo .zip e json
         message_bin = ''.join(format(i, '08b') for i in bytearray(message, encoding ='utf-8')) #trasformo la stringa in binario
@@ -189,10 +209,9 @@ def server_UDP():
         
         #salvo hash(snapshot) su var.locale di sistema mobile
         snapshot = message
-        print("stringa: ", message)
         hash_snapshot = hashlib.sha256(snapshot.encode())
         hash_snapshot_hex = hash_snapshot.hexdigest()
-        print("lo snapshot: ", hash_snapshot_hex)
+        # print("hash_snapshot: ", hash_snapshot_hex)
         app_args = ["insert_local_hash_snapshot_sm".encode(), hash_snapshot_hex.encode()]
         call_app(algod_client, sistema_mobile_privatekey, app_id,  app_args, None)
 
@@ -223,7 +242,9 @@ def server_UDP():
         # ricevo id associato allo snapshot dal sistema centrale
         data = TCPclientsocket.recv(bufferSize)
         id_snapshot = data.decode()
-        list_id.append(id_snapshot)
+        #aggiungo id al file
+        with open(list_file, 'a') as fp:
+            fp.write(id_snapshot + "\n")
         
         # richiedo autenticazione al sistema centrale tramite id (richiesta autenticazione)
         TCPclientsocket.send(id_snapshot.encode('utf-8'))
@@ -238,6 +259,7 @@ def server_UDP():
         # elimina vari file
         os.remove(snapshot_file)
         os.remove(metadati_file)
+        
   
 '''
     Metodo per comunicare con cli
@@ -265,28 +287,78 @@ def server_TCP() :
     while True:
         # ricevi msg da cli
         data = c.recv(bufferSize)
+        
+        #gestisco SIGTERM
+        if (data.decode() == "termina"):
+            print("chiudo cli")
+            TCPclientsocket.send("termina".encode())
+            TCPclientsocket.close()
+            c.close()
+            return
+        
         #msg ricevuto: 'stampa_lista_id'
         if (data.decode() == "stampa_lista_id"):
+            
+            # lista vuota per leggere dal file 'id_list.json'
+            list_id = []
+            # open file and read the content in a list
+            with open(list_file, 'r') as fp:
+                for line in fp:
+                    # remove linebreak from a current name
+                    # linebreak is the last character of each line
+                    x = line[:-1]
+                    # add current item to the list
+                    list_id.append(x)
+                
             lista=pickle.dumps(list_id)
             c.sendall(lista)
-        #msg ricevuto: 'exit'    
+        #msg ricevuto: 'exit'
         elif data.decode() == "exit":
             c.close()
             c, addr = TCPServerSocket.accept() #addr è una tupla che contiene [ip, porta] 
-        #msg ricevuto: id
-        else:
-            # invia id al sistema centrale
-            TCPclientsocket.send(data)
-            
+        #msg ricevuto: 'info_id'
+        elif data.decode() == "info_id":
+            #invio msg conferma ricezione
+            c.send("ok".encode())
+            #ricevo id dalla cli
+            msg = c.recv(bufferSize)
+            print("ricevuto id:", msg.decode())
+            # invia comando info_id al sistema centrale
+            TCPclientsocket.send("info_id".encode())
+            #ricevuto conferma ricezione "info_id"
+            TCPclientsocket.recv(bufferSize)
+            #invio id al sistema centrale
+            TCPclientsocket.send(msg)
             # ricevi risposta dal sistema centrale
             data = TCPclientsocket.recv(bufferSize)
-            
+            print("ricevuta risposta dal sc:", data.decode())
             #invia risposta alla cli
             c.send(data)
 
-        
+        #msg ricevuto: id
+        else:
+            # invia id al sistema centrale
+            TCPclientsocket.send(data)   
+            # ricevi risposta dal sistema centrale
+            data = TCPclientsocket.recv(bufferSize)  
+            #invia risposta alla cli
+            c.send(data)
+
+
 
 if __name__ == "__main__":
+    
+    
+    #crea file che conterrà la lista di id
+    list_file = "/list/id_list.json"
+    try :
+        f = open(list_file,"x")
+    except FileExistsError as err:
+        pass  
+
+    #registro i segnali da catturare
+    signal.signal(signal.SIGTERM, signal_TERM)
+    
     #estrai dati da info_algorand.json
     config_file = json.load(open("info_algorand.json"))
     sistema_mobile_address = config_file["sistema_mobile_address"]
@@ -322,5 +394,7 @@ if __name__ == "__main__":
     thread_server_TCP = Thread(target=server_TCP)
     thread_server_TCP.start()
     
-    
-    
+    thread_server_UDP.join()
+    print("chiuso thread_server_udp")
+    thread_server_TCP.join()
+    print("chiuso thread_server_tcp")

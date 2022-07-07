@@ -7,15 +7,25 @@ import random
 import socket
 import  time
 import json
-import os
 import calendar
+import sys
+import signal
 
+#SEGNALE
+def signal_TERM(self, *args):
+    msgFromClient = asciitobin("termina")
+    bytesToSend = msgFromClient.encode()
+    UDPClientSocket.sendto(bytesToSend, (MCAST_GRP, MCAST_PORT))
+    print("inviato messaggio terminazione a SM e SR")
+    #chiudi connessione UDP
+    UDPClientSocket.close()
+    sys.exit(0)
 
 def num_random () :
     num = random.randint(0, 1000)
     return num
 
-def generate_snapshot () :
+def generate_timestamp () :
     #timestamp
     gmt = time.gmtime()
     timestamp = calendar.timegm(gmt)
@@ -33,6 +43,10 @@ def bintoascii (bin) :
 
 
 if __name__ == "__main__":
+    
+    #registro i segnali da catturare
+    signal.signal(signal.SIGTERM, signal_TERM)
+    
     #estrai dati da config.json
     config_file = json.load(open("config.json")) #estraggo config.json
     timesendsnapshot = config_file["timesendsnapshot"]
@@ -47,20 +61,18 @@ if __name__ == "__main__":
     UDPClientSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     UDPClientSocket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
     
-    print("simulazione ANTENNA_GPS: inizierà ad inviare pacchetti UDP alla 'stazione di riferimento' e al 'sistema mobile' !!")
+    print("simulazione ANTENNA_GPS: iniziera' ad inviare pacchetti UDP alla 'stazione di riferimento' e al 'sistema mobile' !!")
     print(f"GENERATO UNO SNAPSHOT ogni {timesendsnapshot} secondi!!")
-    print()
     
 
-    while True:
-        snapshot = generate_snapshot()
-        snapshot_bin = asciitobin(snapshot) #snapshot in binario     
-        print("generato snapshot:",snapshot)
+    while True:        
+        timestamp = generate_timestamp()
+        snapshot_bin = asciitobin(timestamp) #snapshot in binario     
         msgFromClient = snapshot_bin
         bytesToSend = msgFromClient.encode()
 
         #invia snapshot al sistema mobile e alla stazione di riferimento
         UDPClientSocket.sendto(bytesToSend, (MCAST_GRP, MCAST_PORT))
-        print("snapshot INVIATO al sistema_mobile e alla stazione di riferimento")
+        print("<< GENERATO timestamp: " + timestamp + ", INVIATO al sistema_mobile e alla stazione di riferimento >>")
         
         time.sleep(timesendsnapshot)

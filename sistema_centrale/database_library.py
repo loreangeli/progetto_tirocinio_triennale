@@ -95,7 +95,7 @@ def print_table(conn) :
         cur = conn.cursor()
         #cur.execute("SELECT * from SNAPSHOT_LIST")
         cur.execute("TABLE SNAPSHOT_LIST")
-        
+        print("stampa tabella db postgres:")
         rows = cur.fetchall()
         for row in rows:
             print("ID: ", row[0])

@@ -3,10 +3,16 @@ from threading import Thread
 import zipfile
 import os
 import struct
-from datetime import datetime
 import threading
 import utility
+import signal
+import sys
 
+
+#SEGNALE
+def signal_TERM(self, *args):
+    pass
+    
 #configurazione Server UDP (comunicazione con antenna)
 MCAST_GRP = '224.1.1.1'
 MCAST_PORT = 5007
@@ -30,7 +36,7 @@ def create_files (binary_string) :
     snapshot_file = 'snapshot' + str(id) + '.bin'
     with open(snapshot_file,"wb") as f:
         f.write(binary_string)
-        
+    
     # creo file JSON
     metadati_file = "metadati" + str(id) + ".json"
     metadati = utility.bintoascii(binary_string)
@@ -63,17 +69,25 @@ def server_UDP():
     TCPclientsocket.connect((host_sc,port_sc))
     print("Connesso con TCP sistema centrale con host:"+str(host_sc)+", porta:"+str(port_sc))
     
-    while(True):
+    while True:
         #In ascolto di snapshot da antenna
-        print("? in ascolto di snapshot da antenna ?")
-        msg = UDPServerSocket.recv(10240)
+        print("! in ascolto di snapshot da antenna !")
+        msg = UDPServerSocket.recv(10240) #riceve il time-reference
+        print("ricevuto snapshot: ",utility.bintoascii(msg))
+        
+        #gestisco SIGTERM
+        if (utility.bintoascii(msg) == "termina"):
+            print("messaggio terminazione ricevuto")
+            TCPclientsocket.send(b"termina")
+            #chiudi connessione TCP
+            TCPclientsocket.close()
+            #chiudi connessione UDP
+            UDPServerSocket.close()
+            return
+        
         #ricostruisco i dati ricevuti dai satelliti
         message = '{"timestamp": '+ utility.bintoascii(msg) + ', "latitudine": "'+ utility.generate_latitudine() +'", "longitudine": "'+ utility.generate_longitudine() + '", "altitudine": ' + utility.generate_altitudine() + '}'
         print("dati di posizione:", message)
-        
-        
-        print("-------")
-        print ("! snapshot ricevuto da antenna! ")
         
         #creo .zip e json
         message_bin = ''.join(format(i, '08b') for i in bytearray(message, encoding ='utf-8')) #trasformo la stringa in binario
@@ -102,9 +116,15 @@ def server_UDP():
         #elimina vari file
         os.remove(snapshot_file)
         os.remove(metadati_file)
-        
      
-        
+
 if __name__ == "__main__":
+    
+    #registro i segnali da catturare
+    signal.signal(signal.SIGTERM, signal_TERM)
+
+    #Avvio thread
     thread_server_UDP = Thread(target=server_UDP)
     thread_server_UDP.start()
+    thread_server_UDP.join()
+    print("thread stazione di riferimento terminato correttamente")
