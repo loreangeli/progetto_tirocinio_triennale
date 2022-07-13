@@ -27,15 +27,16 @@ bufferSize = 10240
     1. .zip contenente il file binario snapshot.bin (snapshot)
     2. file .JSON
 '''
-def create_files (binary_string) :
+def create_files (timestamp_binary, binary_string) :
+    timestamp_binary = timestamp_binary.encode()
     binary_string = binary_string.encode()
     # id thread
     id = threading.get_native_id()
     
-    # creo file binario dello snapshot
+    # creo file binario dello snapshot -> è il timestamp in binario
     snapshot_file = 'snapshot' + str(id) + '.bin'
     with open(snapshot_file,"wb") as f:
-        f.write(binary_string)
+        f.write(timestamp_binary)
     
     # creo file JSON
     metadati_file = "metadati" + str(id) + ".json"
@@ -66,18 +67,32 @@ def server_UDP():
 
     #Creo connessione client TCP con il sistema centrale per l'invio di .zip e JSON
     TCPclientsocket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    TCPclientsocket.connect((host_sc,port_sc))
+    
+    #attendo finchè non si connette al sistema centrale
+    start_connection = True
+    while start_connection: #attendi finchè non si connette al sistema centrale
+        try :
+            TCPclientsocket.connect((host_sc,port_sc))
+            start_connection = False
+        except ConnectionRefusedError as err:
+            if str(err).find("[Errno 111] Connection refused") != -1 :
+                pass
+                #print("attendi connessione con sistema centrale...")
+            else :
+                print(err)
+            start_connection = True
+    
     print("Connesso con TCP sistema centrale con host:"+str(host_sc)+", porta:"+str(port_sc))
     
     while True:
-        #In ascolto di snapshot da antenna
+        #In ascolto di snapshot (timestamp) da antenna
         print("! in ascolto di snapshot da antenna !")
         msg = UDPServerSocket.recv(10240) #riceve il time-reference
-        print("ricevuto snapshot: ",utility.bintoascii(msg))
+        # print("ricevuto timestamp: ",utility.bintoascii(msg))
         
         #gestisco SIGTERM
         if (utility.bintoascii(msg) == "termina"):
-            print("messaggio terminazione ricevuto")
+            # print("messaggio terminazione ricevuto")
             TCPclientsocket.send(b"termina")
             #chiudi connessione TCP
             TCPclientsocket.close()
@@ -91,7 +106,8 @@ def server_UDP():
         
         #creo .zip e json
         message_bin = ''.join(format(i, '08b') for i in bytearray(message, encoding ='utf-8')) #trasformo la stringa in binario
-        id = create_files(message_bin)
+        timestamp_bin = ''.join(format(i, '08b') for i in bytearray(utility.bintoascii(msg), encoding ='utf-8')) #trasformo il timerefence in binario
+        id = create_files(timestamp_bin, message_bin)
         
         #invio notifica: pronto ad inviare pacchetto
         TCPclientsocket.send(b"pronto")
@@ -104,15 +120,16 @@ def server_UDP():
         
         #notifica ricezione pacchetto
         TCPclientsocket.recv(bufferSize)
-        print("packet.zip INVIATO al sistema centrale")
+        # print("packet.zip INVIATO al sistema centrale")
 
         #invio 'metadati.json' a sistema centrale (via TCP)
         metadati_file = "metadati" + str(id) + ".json"
         with open(metadati_file, 'rb') as packet_to_send:
             data = packet_to_send.read()
             TCPclientsocket.sendall(data)
-        print("metadati.json INVIATO al sistema centrale")  
+        # print("metadati.json INVIATO al sistema centrale")  
         
+        print("packet.zip e metadati.json INVIATI al sistema centrale")
         #elimina vari file
         os.remove(snapshot_file)
         os.remove(metadati_file)

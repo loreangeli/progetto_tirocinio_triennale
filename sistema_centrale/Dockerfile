@@ -23,8 +23,8 @@ ADD utility.py /sistema_centrale/
 # Here we define '/server/' as base directory (where all commands will be executed).
 WORKDIR /sistema_centrale/
 
-EXPOSE 4001
-EXPOSE 4002
-EXPOSE 9392
-EXPOSE 5433
-EXPOSE 8980
+# EXPOSE 4001
+# EXPOSE 4002
+# EXPOSE 9392
+# EXPOSE 5433
+# EXPOSE 8980

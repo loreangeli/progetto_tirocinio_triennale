@@ -16,7 +16,7 @@ def signal_TERM(self, *args):
     msgFromClient = asciitobin("termina")
     bytesToSend = msgFromClient.encode()
     UDPClientSocket.sendto(bytesToSend, (MCAST_GRP, MCAST_PORT))
-    print("inviato messaggio terminazione a SM e SR")
+    # print("inviato messaggio terminazione a SM e SR")
     #chiudi connessione UDP
     UDPClientSocket.close()
     sys.exit(0)
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     
     print("simulazione ANTENNA_GPS: iniziera' ad inviare pacchetti UDP alla 'stazione di riferimento' e al 'sistema mobile' !!")
     print(f"GENERATO UNO SNAPSHOT ogni {timesendsnapshot} secondi!!")
-    
+    time.sleep(5)
 
     while True:        
         timestamp = generate_timestamp()

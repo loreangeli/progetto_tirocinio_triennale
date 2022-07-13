@@ -1,4 +1,3 @@
-
 version: "3"
 
 services:
@@ -7,15 +6,18 @@ services:
     stdin_open: true # docker run -i
     tty: true        # docker run -t
     build: sistema_centrale/
-    command: python ./sistemacentrale.py
     volumes:
       - db_sistemacentrale:/data/.
+    command:  python ./sistemacentrale.py
+    links:
+      - db
     depends_on:
       - db
-    ports:
-      - 4001:4001
-      - 4002:4002
-      - 9392:9392
+    #https://stackoverflow.com/questions/52322800/docker-compose-how-to-wait-for-other-service-to-be-ready
+    # ports:
+    #   - 4001:4001
+    #   - 4002:4002
+      # - 9392:9392
 
   sistemamobile:
     stdin_open: true # docker run -i
@@ -51,7 +53,6 @@ services:
   cli:
     stdin_open: true # docker run -i
     tty: true        # docker run -t
-    restart: always
     build: sistema_mobile/cli/
     depends_on:
       - sistemamobile
@@ -59,7 +60,6 @@ services:
 
   db:
       image: postgres:14.1-alpine
-      # restart: always
       environment:
           - POSTGRES_DB=postgres
           - POSTGRES_USER=postgres

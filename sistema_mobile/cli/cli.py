@@ -82,7 +82,7 @@ if __name__ == "__main__":
                 #invia id da verificare al sistema mobile
                 id = msg_split[1]
                 TCPclientsocket.send(id.encode())
-                print("id inviato: ",id)
+                # print("id inviato: ",id)
                 #ricevo info posizione dal sistema mobile 
                 data = TCPclientsocket.recv(bufferSize)
                 print("ricevuto:",data.decode())  
@@ -90,8 +90,6 @@ if __name__ == "__main__":
         elif msg.startswith("verifica_id"):
             #estrai id
             msg_split = msg.split()
-            print("msg_split[0]: ",msg_split[0])
-            print("msg_split[1]: ",msg_split[1])
             
             if len(msg_split)!=2:
                 print("comando non riconosciuto, digita 'help' per i suggerimenti")
@@ -99,12 +97,10 @@ if __name__ == "__main__":
                 id = msg_split[1]
                 #invia id da verificare al sistema mobile
                 TCPclientsocket.send(id.encode())
-                print("id inviato: ",id)
+                # print("id inviato: ",id)
                 #ricevo risposta (True/False) dal sistema mobile 
                 data = TCPclientsocket.recv(bufferSize)
-                print("ricevuto:",data.decode())
                 ris = str(data.decode())
-                print("ricevuto2:",data.decode())
                 
                 if (ris == "True") :
                     print("Lo snapshot con id " + id + " è stato certificato correttamente")

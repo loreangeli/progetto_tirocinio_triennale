@@ -81,7 +81,7 @@ def call_app(client, private_key, index, app_args, accounts) :
     # attendi conferma transazione
     try:
         transaction.wait_for_confirmation(client, tx_id, 4)
-        print("TXID: " + tx_id + "-->" + app_args[0].decode())
+        print("TXID: " + tx_id + ", " + app_args[0].decode())
 
     except Exception as err:
         print(err)
@@ -134,15 +134,16 @@ def opt_in(client, private_key, app_id, app_args, accounts):
 # metodo che a partire dallo snapshot (stringa binaria) costruisce i due file:
 # 1. .zip contenente il file binario (snapshot)
 # 2. file JSON
-def create_files (binary_string) :
+def create_files (timestamp_binary, binary_string) :
+    timestamp_binary = timestamp_binary.encode()
     binary_string = binary_string.encode()
     #id thread
     id =threading.get_native_id()
     
-    #creo file binario dello snapshot
+    #creo file binario dello snapshot -> è il timestamp in binario
     snapshot_file = 'snapshot' + str(id) + '.bin'
     with open(snapshot_file,"wb") as f:
-        f.write(binary_string)
+        f.write(timestamp_binary)
     
     #creo file JSON
     metadati_file = "metadati" + str(id) + ".json"
@@ -159,7 +160,7 @@ def create_files (binary_string) :
     return id    
 
 '''
-    metodo che fa due cose: 
+    Metodo che fa due cose: 
     1. rimane in ascolto dei pacchetti inviati da antenna
     2. invia i pacchetti ricevuti al sistema centrale tramite connessione TCP
 '''
@@ -175,19 +176,27 @@ def server_UDP():
     
     #Connessione client TCP con il sistema centrale per l'invio dello snapshot
     TCPclientsocket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    TCPclientsocket.connect((host_sc,port_sc))
+    
+    #attendo finchè non si connette al sistema centrale
+    start_connection = True
+    while start_connection: #attendi finchè non si connette al sistema centrale
+        try :
+            TCPclientsocket.connect((host_sc,port_sc))
+            start_connection = False
+        except ConnectionRefusedError as err:
+            print(err)
+            start_connection = True
+            
     print("Connesso con TCP sistema centrale con host:"+str(host_sc)+", porta:"+str(port_sc))
     
     while True:
-        
         #In ascolto di snapshot da antenna
         print("! in ascolto di snapshot da antenna !")
         msg = UDPServerSocket.recv(10240) #riceve il time-reference
-        print("ricevuto snapshot: ",utility.bintoascii(msg))
+        # print("ricevuto timestamp: ",utility.bintoascii(msg))
         
-        #gestisco SIGTERM
+        #gestisco SIGTERM (faccio terminare il thread)
         if (utility.bintoascii(msg) == "termina"):
-            print("messaggio terminazione ricevuto")
             TCPclientsocket.send(b"termina")
             #chiudo connessione TCP con il sistema centrale
             TCPclientsocket.close()
@@ -201,14 +210,15 @@ def server_UDP():
         
         #creo .zip e json
         message_bin = ''.join(format(i, '08b') for i in bytearray(message, encoding ='utf-8')) #trasformo la stringa in binario
-        id = create_files(message_bin)
+        timestamp_bin = ''.join(format(i, '08b') for i in bytearray(utility.bintoascii(msg), encoding ='utf-8')) #trasformo il timerefence in binario
+        id = create_files(timestamp_bin, message_bin)
         
         #invio notifica: pronto ad inviare pacchetto
         TCPclientsocket.send(b"pronto")
         TCPclientsocket.recv(bufferSize)
         
-        #salvo hash(snapshot) su var.locale di sistema mobile
-        snapshot = message
+        #salvo l'hash del timestamp ricevuto da antenna su var.locale di sistema mobile
+        snapshot = utility.bintoascii(msg)
         hash_snapshot = hashlib.sha256(snapshot.encode())
         hash_snapshot_hex = hash_snapshot.hexdigest()
         # print("hash_snapshot: ", hash_snapshot_hex)
@@ -220,7 +230,7 @@ def server_UDP():
         with open(snapshot_file, 'rb') as packet_to_send:
             data = packet_to_send.read()
         TCPclientsocket.sendall(data)
-        print("packet.zip INVIATO al sistema centrale")
+        # print("packet.zip INVIATO al sistema centrale")
 
         #notifica ricezione pacchetto
         TCPclientsocket.recv(bufferSize)
@@ -230,14 +240,16 @@ def server_UDP():
         with open(metadati_file, 'rb') as packet_to_send:
             data = packet_to_send.read()
             TCPclientsocket.sendall(data)
-        print("metadati.json INVIATO al sistema centrale")        
+        # print("metadati.json INVIATO al sistema centrale")        
         
         # ricevi conferma ricezione
         msg = TCPclientsocket.recv(bufferSize)
         
         # invio account_address_sistema_mobile
         TCPclientsocket.send(sistema_mobile_address.encode('utf-8'))
-        print("sistema_mobile_address INVIATO al sistema centrale")
+        # print("sistema_mobile_address INVIATO al sistema centrale")
+        
+        print("packet.zip, metadati.json e sistema_mobile_address INVIATI al sistema centrale")
         
         # ricevo id associato allo snapshot dal sistema centrale
         data = TCPclientsocket.recv(bufferSize)
@@ -285,8 +297,7 @@ def server_TCP() :
     print("Connesso con TCP sistema centrale-cli con host:"+str(host_sc_sm)+", porta:"+str(port_sc_sm))
 
     while True:
-        # ricevi msg da cli
-        data = c.recv(bufferSize)
+        data = c.recv(bufferSize) # ricevi msg da cli
         
         #gestisco SIGTERM
         if (data.decode() == "termina"):
@@ -296,8 +307,7 @@ def server_TCP() :
             c.close()
             return
         
-        #msg ricevuto: 'stampa_lista_id'
-        if (data.decode() == "stampa_lista_id"):
+        if (data.decode() == "stampa_lista_id"): #msg ricevuto: 'stampa_lista_id'
             
             # lista vuota per leggere dal file 'id_list.json'
             list_id = []
@@ -347,9 +357,8 @@ def server_TCP() :
 
 
 if __name__ == "__main__":
-    
-    
-    #crea file che conterrà la lista di id
+ 
+    #crea file (se inesistente) che conterrà la lista degli id ricevuti dal sistema centrale, in questo modo mantengo la persistenza dei dati.
     list_file = "/list/id_list.json"
     try :
         f = open(list_file,"x")
@@ -395,6 +404,6 @@ if __name__ == "__main__":
     thread_server_TCP.start()
     
     thread_server_UDP.join()
-    print("chiuso thread_server_udp")
+    print("chiusura corretta thread_server_udp")
     thread_server_TCP.join()
-    print("chiuso thread_server_tcp")
+    print("chiusura corretta thread_server_tcp")
