@@ -1,0 +1,141 @@
+\documentclass[12pt,oneside]{report}
+\usepackage[utf8]{inputenc}
+
+
+%%%
+\usepackage{minted}
+\newminted{python}{%
+    % options to customize output of pythoncode
+    % see section 5.3 Available options starting at page 16
+}
+
+%%%
+
+
+
+\input{listing/listing}
+
+\usepackage{hyperref}
+
+\usepackage{float}
+
+\usepackage{changepage}
+
+\usepackage{booktabs}
+
+\usepackage{hyperref}
+
+\usepackage{adjustbox}
+
+\usepackage{lipsum}
+
+\usepackage{graphicx}
+\graphicspath{ {images/} }
+
+\usepackage[italian]{babel}
+
+\usepackage[a4paper,width=150mm,top=25mm,bottom=25mm,bindingoffset=6mm]{geometry}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhead[LO,LE]{\thepage}
+\fancyfoot{}
+
+\usepackage{caption}
+\usepackage{subcaption}
+
+\usepackage[
+backend=biber,
+sorting=none
+]{biblatex}
+\usepackage{csquotes}
+
+\addbibresource{references.bib}
+
+\usepackage[T1]{fontenc}
+\usepackage[explicit]{titlesec}
+\usepackage{calc}
+\usepackage{lmodern}
+
+\titleformat{\chapter}[hang]
+{\filcenter}
+{\parbox{\widthof{\LARGE\sffamily\MakeUppercase{\chaptername}}}{%
+   \filcenter\Large\usefont{T1}{phv}{m}{n}\MakeUppercase{\chaptername}\\%
+   \fontsize{48pt}{48pt}\selectfont\thechapter%
+ }\enspace%
+}
+{0pt}
+{\Huge\usefont{T1}{phv}{b}{n}\vrule width 1pt \enspace%
+ \parbox{\textwidth-\widthof{\LARGE\sffamily\MakeUppercase{\chaptername}\enspace}}{\filright #1}%
+}
+
+\usepackage{tikz}
+\def\checkmark{\tikz\fill[scale=0.4](0,.35) -- (.25,0) -- (1,.7) -- (.25,.15) -- cycle;} 
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{filecontents}
+\usepackage{verbatim}
+\usepackage{eurosym}
+\usepackage{floatflt,epsfig}
+
+\usepackage{pagecolor}
+
+\begin{document}
+
+
+\input{titolo}
+
+% \chapter*{Prefazione}
+% \input{chapters/0.prefazione}
+
+\tableofcontents
+
+\listoffigures
+
+\chapter{Introduzione}
+\input{chapters/1.introduzione}
+
+\chapter{Stato dell'arte}\label{2.statoarte}
+\input{chapters/2.stato dell'arte}
+
+\chapter{Il progetto iniziale}\label{3.progetto iniziale}
+\input{chapters/3.progetto iniziale}
+
+\chapter{Integrazione con la Blockchain}\label{4.integriamo la blockchain}
+\input{chapters/4.integriamo la blockchain}
+
+\chapter{Cli e Intecs}\label{5.cli e intecs}
+\input{chapters/5.cli e intecs}
+
+\chapter{Simulazione del sistema di rilevazione}\label{6.simulazione del progetto}
+\input{chapters/6.simulazione}
+
+\chapter{Conclusioni}\label{7.conclusioni}
+\input{chapters/7.conclusioni}
+
+\chapter*{Ringraziamenti}
+\addcontentsline{toc}{chapter}{Ringraziamenti}
+\chaptermark{Ringraziamenti}
+\rhead{}
+\input{chapters/8.ringraziamenti}
+
+\printbibliography[
+heading=bibintoc,
+title={Bibliografia}
+]
+
+% \begin{refsection}[references2.bib]
+% \nocite{*}
+% \printbibliography[
+% heading=bibintoc,
+% keyword={capitolo6Lorenzo},
+% title={Bibliografia appendice C}
+% ]
+% \end{refsection}
+
+
+\end{document}

@@ -1,0 +1,6 @@
+{
+    "sistema_centrale_address": "indirizzo pubblico",
+    "sistema_centrale_privatekey": "chiave privata",
+    "sistema_centrale_passphrase": "frase mnemonica",
+    "app_id":0000000
+}

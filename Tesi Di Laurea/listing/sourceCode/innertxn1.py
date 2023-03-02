@@ -1,0 +1,1 @@
+Global.current_application_address()
