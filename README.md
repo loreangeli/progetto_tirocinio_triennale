@@ -1,5 +1,5 @@
 ## Scopo del tirocinio
-Il lavoro di questo tirocinio riguarda un progetto di Intecs SpA. L’azienda ha sviluppato un sistema di certificazione della posizione basato su tecnologia GNSS/SDR. Lo scopo è stato quello di integrare la tecnologia di Algorand2 all’interno del dispositivo mobile che certifica la posizione, in modo che la certificazione venga realizzata direttamente su blockchain.
+Il lavoro di questo tirocinio riguarda un progetto di Intecs SpA. L’azienda ha sviluppato un sistema di certificazione della posizione basato su tecnologia GNSS/SDR. Lo scopo è stato quello di integrare la tecnologia di Algorand all’interno del dispositivo mobile che certifica la posizione, in modo che la certificazione venga realizzata direttamente su blockchain.
 
 ### Prerequisiti
 Assicurati di aver installato Docker Desktop  
