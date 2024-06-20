@@ -1,3 +1,5 @@
+$${\color{green}Green}$$
+
 Assicurarsi di avere installato Docker Desktop.
 Avviare il programma con il seguente comando:
 docker-compose up --build
