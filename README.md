@@ -44,4 +44,4 @@ docker down
 ```
 
 ### LINK UTILI
-INSTALLAZIONE DELLA SANDBOX DA ZERO: https://www.youtube.com/watch?v=V3d3VTlgMo8&list=PLpAdAjL5F75CNnmGbz9Dm_k-z5I6Sv9_x&ab_channel=Algorand  
+Installazione della sandbox da zero: https://www.youtube.com/watch?v=V3d3VTlgMo8&list=PLpAdAjL5F75CNnmGbz9Dm_k-z5I6Sv9_x&ab_channel=Algorand  
